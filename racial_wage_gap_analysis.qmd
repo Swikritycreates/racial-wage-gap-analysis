@@ -1,0 +1,248 @@
+---
+title: "Wage Disparities Across Race and Region in the U.S. Labor Market"
+author: "Swikriti Dumre"
+format:
+  html:
+    embed-resources: true
+---
+
+```{r}
+#| echo: false
+library(Sleuth2) # install.packages("Sleuth2") in the R console if needed
+CPS_1988_wages <- Sleuth2::ex1029
+```
+
+
+
+## INTRODUCTION
+
+Wage disparities across race and geography remain a persistent issue in labor economics. This analysis examines differences in wages between Black and non-Black male workers across U.S. regions, while controlling for education and experience. In this report we are trying to answer the following questions: 
+
+- `What is the pay gap between Black male workers and non-Black male workers in each geographic region?`
+- `Does the magnitude of the pay gap between Black male and non-Black male workers differ across regions?`
+
+This report addresses the pay gap between black and non-black workers in different geographical region around the US. We go through the wage reports based on worker's identification of Black or non-Black and the region they have been working in. 
+
+These data were retrieved from Current Population Survey (CPS) collected by U.S. Census Bureau. Its purpose is to provide information about the general activities and characteristics of the U.S. labor force.
+
+Data Collection Time: 1988 A.D.
+
+The variables that are critical to this report are explained as follows: 
+
+- `Wage:` Weekly wage in dollars
+- `Black:` Indicator of whether the person is black: a factor with levels "Yes" and "No"
+- `Region:` Code for the region in the US where they worked
+- `Education:` Education of the sampled male worker in years
+- `Experience:` Experience of the sampled male worker in years
+
+## DATA ANALYSIS
+
+### Summary on Raw Data 
+
+```{r}
+#| echo: false
+#| fig-cap: "Relationship of black, region, and wage in raw data"
+#| label: fig-relationship-mdl
+#| warning: false
+library(tidyverse)
+library(ggplot2)
+
+ggplot(
+  data = CPS_1988_wages, 
+  mapping = aes(x = Region, y =Wage , fill = Black)
+)+
+  geom_boxplot() +
+  labs(
+    title = "Wage Distribution by Region and Black Status",
+    x = "Region",
+    y = "Weekly Wage",
+    fill = "Black Worker"
+  ) +
+  theme_minimal()
+```
+
+From a superficial look on the data, we can observe that pay rates are higher for non-Black workers in general across all regions. We will perform some analysis on this data further to provide a clear picture of magnitudes between these variables and reasons for this relationship.
+
+### DATA WRANGLING
+
+#### Filtering 
+
+As a clearance of misdirecting data, we are removing all the rows that have Wage, Education, and Experience less than 0 as well as the rows that have any other values that the factor level values "Yes" and "No" for SMSA and Black.
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+library(tidyverse)
+
+CPS_filtered_data <- CPS_1988_wages |>
+  filter(Wage >= 0 & Education >= 0 & Experience >= 0 & SMSA %in% c("Yes", "No") & Black %in% c("Yes", "No") & Region %in% c("MW", "NE", "S", "W"))
+```
+
+
+#### Transformation 
+
+In order to decide the type of model to fit for this data, we will check this data for LINE conditions.  
+
+```{r}
+#| echo: false
+#| warning: false
+library(broom) 
+library(ggplot2)
+library(performance)
+library(equatiomatic)
+linear_model <- lm(Wage ~ Education+ Experience + Black + Region, data = CPS_filtered_data)
+check_model(linear_model, check = c("linearity", "homogeneity", "qq"))
+```
+
+
+As we can observe, the variance has a higher spread to the right with somewhat Funnel shape showing a increasing residual error for higher wage earners. Likewise, the Normal QQ plot also shows a long right tail which can be interpreted as more outliers towards the high end of wage scale.The assumptions of linear regression are violated, particularly homoscedasticity and normality, indicating the need for transformation. In order to address the normality and stabilize the variance, we will perform a log transformation on this data. 
+
+```{r}
+#| warning: false
+#| echo: false
+wage_p_model <- lm(log(Wage) ~ Education+ Experience + Black + Region, data = CPS_filtered_data)
+check_model(wage_p_model, check = c("linearity", "homogeneity", "qq"))
+```
+
+After the transformation, we can see an acceptable linearity, variance and normality throughout the data. Assuming these data were collected across different individuals, we will assume Independence and take this fitted model into account. 
+
+## Pay Gap Across Regions
+
+```{r}
+#| warning: false
+#| echo: false
+#| results: hide
+wage_i_model <- lm(log(Wage) ~ Education+ Experience + Black * Region, data = CPS_filtered_data)
+```
+
+```{r}
+#| echo: false
+#| results: hide
+anova(wage_p_model, wage_i_model) 
+```
+
+In order to answer the questions of our report, we have two possible models to select from: 
+
+-`Additive Model:` In this model we have Education+ Experience + Black + Region as our explanatory side of variables. 
+
+-`Interaction Model:` In this model we have Education+ Experience + Black * Region as our explanatory side of variables. 
+
+We use a partial F-test to compare Additive (Reduced) model and Interactive (Full) model to determine if the differences in pay-gap across regions is statistically significant. After performing the F test on both of these models, we observe an F-statistic of 1.4199. This leads us to a conclusion that there is no statistically significant evidence that the wage gap differs across regions (p = 0.234).
+
+
+
+```{r}
+#| echo: false
+#| warning: false
+library(ggplot2)
+library(dplyr)
+
+newdata <- expand.grid(
+  Education = mean(CPS_filtered_data$Education),
+  Experience = mean(CPS_filtered_data$Experience),
+  Black = c("Yes", "No"),
+  Region = c("MW", "NE", "S", "W")
+)
+
+newdata$pred <- predict(wage_p_model, newdata = newdata)
+
+ggplot(newdata, aes(x = Region, y = exp(pred), fill = Black)) +
+  geom_col(position = "dodge") +
+  labs(
+    title = "Predicted Wage Gap by Race and Region",
+    y = "Predicted Weekly Wage",
+    x = "Region"
+  ) +
+  theme_minimal()
+```
+
+
+## Pay Gap Quantity
+
+In order to show the pay gap between black and non-black male workers across the geographical region, we will summarize the additive model.
+
+
+```{r}
+#| echo: false
+library(broom)
+
+tidy(wage_p_model, conf.int = TRUE) |>
+  filter(term == "BlackNo") |>
+  ggplot(aes(x = term, y = estimate)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.1) +
+  labs(
+    title = "Estimated Wage Gap (Log Scale)",
+    y = "Effect on log(Wage)",
+    x = ""
+  ) +
+  theme_minimal()
+```
+
+
+```{r}
+#| echo: false
+#| results: hide 
+summary(wage_p_model)
+confint(wage_p_model)
+```
+
+#### Population Model: 
+$$log(Wage)= \beta_0+ \beta_1 \cdot Education + \beta_2 \cdot Experience + \beta_3 \cdot Black_{NO} + \beta_4 \cdot Region_{NE} + \beta_5 \cdot Region_S + \beta_6 \cdot Region_W + \epsilon$$
+
+
+We receive the following coefficients represented in a fitted equation shown below:
+ 
+#### Fitted Model: 
+
+$$\widehat{log(Wage)}= \hat{\beta_0}+ \hat{\beta_1} \cdot Education +  \hat{\beta_2} \cdot Experience +  \hat{\beta_3} \cdot Black_{NO} +  \hat{\beta_4} \cdot Region_{NE} +  \hat{\beta_5} \cdot Region_S + \hat{\beta_6}\cdot Region_W $$
+
+```{r}
+#| label: tbl-coefficient-mdl
+#| tbl-cap: Estimates of the model parameters and their accompanying standard errors 
+#| echo: false
+library(knitr)
+coefficient_table <- tibble(
+  Parameters = c("Intercept", "Education", "Experience", "BlackNo","RegionNE", "RegionS", "RegionW"),
+  Estimate = c("4.4567340", "0.0990952", "0.0177516", "0.2156000", "0.0619622", "-0.0575524", "0.0034676"),
+  Standard_Error = c("0.0221825", "0.0012020", "0.0002822", "0.0126999", "0.0097088", "0.0091288", "0.0099176")
+)
+
+kable(coefficient_table)
+```
+
+Substituting the parameters with their values we get: 
+
+$$\widehat{log(Wage)} = 4.4567340+   0.099095 \cdot Education +   0.0177516 \cdot Experience +   0.2156000 \cdot Black_{NO} +   0.0619622   \cdot Region_{NE} + (-0.0575524) \cdot Region_S +   0.0034676 \cdot Region_W $$
+Now, we will convert this into regular Wage model by applying the following re-transformation. 
+
+$$\widehat{Wage} = e^{4.457} \cdot   e^{0.099 \cdot Education} \cdot  e^ {0.018 \cdot Experience} \cdot e^{ 0.216 \cdot Black_{NO}} \cdot  e^ {0.0619622   \cdot Region_{NE}} \cdot e^{(-0.0575524) \cdot Region_S} \cdot   e^{0.0034676 \cdot Region_W} $$
+According to this equation, if we hold Education and Experience constant, we observe that non-Black workers earn approximately 24% higher wages than Black workers, holding education, experience, and region constant.
+
+$$ \text{Average Percentage Gap} = (1.24 - 1)* 100= 24\% $$
+
+**Confidence Intervals**: The 95% confidence interval suggests that non-Black workers earn between $21\%$ to $27\%$ more than Black workers. 
+
+
+```{r}
+#| label: tbl-regression-mdl
+#| tbl-cap: Predicted wages at baseline levels of education and experience (for model interpretation purposes)
+#| echo: false
+library(knitr)
+order_of_presentation <- tibble(
+  Black = c("Yes", "No", "Percentage Gap"),
+  MW = c("96.89043", "120.2029", "~24%"),
+  NE = c("103.0839", "127.8865", "~24%"),
+  S = c(" 91.47159", "113.4802", "~24%"),
+  W =c(" 97.227", "119.7868", "~24%"),
+)
+
+kable(order_of_presentation)
+```
+
+### Conclusion 
+
+This analysis finds that non-Black male workers earn significantly higher wages than Black male workers, with an estimated gap of approximately $21\%$ $27\%$, after controlling for education, experience, and region. There is no statistically significant evidence that this gap varies across regions. These findings suggest that racial wage disparities persist consistently across geographic areas.
+
