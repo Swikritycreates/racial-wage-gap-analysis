@@ -70,4 +70,4 @@ This analysis was conducted in R using:
 The results suggest that racial wage disparities persist consistently across geographic regions in the United States, even after controlling for education and experience.
 
 
-Swikriti Dumre
+[View Analysis](https://swikritycreates.github.io/racial-wage-gap-analysis/)
